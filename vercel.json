@@ -1,9 +1,9 @@
 {
-  "framework": "nextjs",
-  "buildCommand": "pnpm build",
+  "Framework": "nextjs",
+  "buildCommand": "build pnpm",
   "installCommand": "pnpm install",
   "outputDirectory": ".next",
-  "regions": ["iad1"],
+  "regiones": ["IAD1"],
   "env": {
     "DATABASE_URL": "@database_url",
     "DIRECT_URL": "@direct_url",

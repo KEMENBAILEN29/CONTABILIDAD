@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/client";
+import { auth } from "@/lib/auth/auth";
 import { downloadFactura } from "@/lib/storage/upload";
 import { extractFromInvoice } from "@/lib/ocr/extract";
 import { parseOCRResult } from "@/lib/ocr/parse";
@@ -22,7 +23,21 @@ function getMimeFromPath(path: string): AllowedMimeType {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json() as { facturaId?: string };
+  // Only authenticated sessions or internal loopback calls are allowed.
+  // This route is called internally from the upload route (same server),
+  // so we accept calls that carry a valid session OR come from loopback.
+  const session = await auth();
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  const isLoopback =
+    !forwardedFor &&
+    (req.headers.get("host")?.startsWith("localhost") ||
+      req.headers.get("host")?.startsWith("127."));
+
+  if (!session && !isLoopback) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
+  const body = (await req.json()) as { facturaId?: string };
   const { facturaId } = body;
 
   if (!facturaId) return NextResponse.json({ error: "facturaId requerido" }, { status: 400 });
@@ -34,28 +49,38 @@ export async function POST(req: NextRequest) {
 
   if (!factura) return NextResponse.json({ error: "Factura no encontrada" }, { status: 404 });
 
+  // If called with a session, verify the caller owns this factura
+  if (session) {
+    const isOwner =
+      session.user.role === "ADMIN" ||
+      session.user.empresaId === factura.empresaId;
+    if (!isOwner) {
+      return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
+    }
+  }
+
+  // Idempotency guard — don't reprocess an already-completed factura
+  if (factura.estado !== "PROCESANDO") {
+    return NextResponse.json({ skipped: true, estado: factura.estado });
+  }
+
   try {
-    // Download file
     const fileBuffer = await downloadFactura(factura.archivoUrl);
     const mimeType = getMimeFromPath(factura.archivoUrl);
 
-    // OCR extraction
     const rawJson = await extractFromInvoice(fileBuffer, mimeType);
     const ocrData = parseOCRResult(rawJson);
 
-    // Classify
     const tipo = classifyFactura(
       ocrData.emisor_cif,
       ocrData.receptor_cif,
       factura.empresa.cif
     );
 
-    // Determine date
     const fechaFactura = ocrData.fecha_factura ? new Date(ocrData.fecha_factura) : null;
 
-    // Update factura
     await db.factura.update({
-      where: { id: facturaId },
+      where: { id: facturaId, estado: "PROCESANDO" }, // optimistic lock
       data: {
         estado: "PROCESADA",
         tipo,
@@ -75,7 +100,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Create lineas
     if (ocrData.lineas.length > 0) {
       await db.lineaFactura.createMany({
         data: ocrData.lineas.map((l) => ({
@@ -89,7 +113,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Upsert proveedor (the party that is NOT our empresa)
     const proveedorCif = tipo === "INGRESO" ? ocrData.receptor_cif : ocrData.emisor_cif;
     const proveedorNombre = tipo === "INGRESO" ? ocrData.receptor_nombre : ocrData.emisor_nombre;
 

@@ -3,6 +3,33 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db/client";
 
+// In-memory login rate limiter: 5 failed attempts per identifier per 15 min
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+let lastLoginCleanup = Date.now();
+
+function checkLoginRateLimit(identifier: string): boolean {
+  const now = Date.now();
+  if (now - lastLoginCleanup > 300_000) {
+    for (const [k, v] of loginAttempts) {
+      if (v.resetAt < now) loginAttempts.delete(k);
+    }
+    lastLoginCleanup = now;
+  }
+  const key = identifier.toLowerCase().trim();
+  const record = loginAttempts.get(key);
+  if (!record || record.resetAt < now) {
+    loginAttempts.set(key, { count: 1, resetAt: now + 900_000 });
+    return true;
+  }
+  if (record.count >= 5) return false;
+  record.count += 1;
+  return true;
+}
+
+function clearLoginAttempts(identifier: string) {
+  loginAttempts.delete(identifier.toLowerCase().trim());
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
@@ -15,6 +42,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const identifier = credentials.identifier as string;
         const password = credentials.password as string;
+
+        if (!checkLoginRateLimit(identifier)) return null;
+
         const isCIF = !identifier.includes("@");
 
         if (isCIF) {
@@ -24,6 +54,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (!empresa || !empresa.activo) return null;
           const valid = await bcrypt.compare(password, empresa.passwordHash);
           if (!valid) return null;
+          clearLoginAttempts(identifier);
           return {
             id: empresa.id,
             name: empresa.nombre,
@@ -38,6 +69,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (!user) return null;
           const valid = await bcrypt.compare(password, user.passwordHash);
           if (!valid) return null;
+          clearLoginAttempts(identifier);
           return {
             id: user.id,
             name: user.nombre,

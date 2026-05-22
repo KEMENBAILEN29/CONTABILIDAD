@@ -4,6 +4,7 @@ import { getEmpresaById } from "@/lib/db/empresas";
 import { getFacturasForInforme } from "@/lib/db/facturas";
 import { renderPDF } from "@/lib/pdf/render";
 import { BalanceDocument } from "@/lib/pdf/balance";
+import { InformeQuerySchema } from "@/lib/validators";
 import React from "react";
 
 export async function GET(req: NextRequest) {
@@ -11,10 +12,14 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   const url = new URL(req.url);
-  const desde = url.searchParams.get("desde");
-  const hasta = url.searchParams.get("hasta");
-
-  if (!desde || !hasta) return NextResponse.json({ error: "Rango de fechas requerido" }, { status: 400 });
+  const parsed = InformeQuerySchema.safeParse({
+    desde: url.searchParams.get("desde"),
+    hasta: url.searchParams.get("hasta"),
+  });
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Fechas inválidas" }, { status: 400 });
+  }
+  const { desde, hasta } = parsed.data;
 
   const empresaId = session.user.role === "CLIENTE" ? session.user.empresaId! : (url.searchParams.get("empresaId") ?? "");
   if (!empresaId) return NextResponse.json({ error: "empresaId requerido" }, { status: 400 });

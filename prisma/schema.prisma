@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+}
+
+enum TipoFactura {
+  INGRESO
+  GASTO
+  AMBAS
+}
+
+enum EstadoFactura {
+  PROCESANDO
+  PROCESADA
+  ERROR
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  nombre       String
+  role         Role     @default(ADMIN)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Empresa {
+  id           String      @id @default(cuid())
+  cif          String      @unique
+  nombre       String
+  email        String?
+  telefono     String?
+  direccion    String?
+  passwordHash String      @map("password_hash")
+  activo       Boolean     @default(true)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  facturas     Factura[]
+  proveedores  Proveedor[]
+
+  @@map("empresas")
+}
+
+model Factura {
+  id             String        @id @default(cuid())
+  empresaId      String        @map("empresa_id")
+  empresa        Empresa       @relation(fields: [empresaId], references: [id])
+  archivoUrl     String        @map("archivo_url")
+  archivoNombre  String        @map("archivo_nombre")
+  tipo           TipoFactura?
+  estado         EstadoFactura @default(PROCESANDO)
+  errorMensaje   String?       @map("error_mensaje")
+  numeroFactura  String?       @map("numero_factura")
+  fechaFactura   DateTime?     @map("fecha_factura")
+  emisorCif      String?       @map("emisor_cif")
+  emisorNombre   String?       @map("emisor_nombre")
+  receptorCif    String?       @map("receptor_cif")
+  receptorNombre String?       @map("receptor_nombre")
+  baseImponible  Decimal?      @map("base_imponible") @db.Decimal(12, 2)
+  ivaPorcentaje  Decimal?      @map("iva_porcentaje") @db.Decimal(5, 2)
+  ivaImporte     Decimal?      @map("iva_importe") @db.Decimal(12, 2)
+  total          Decimal?      @db.Decimal(12, 2)
+  concepto       String?
+  trimestre      Int?
+  anio           Int?          @map("año")
+  subidoPorAdmin Boolean       @default(false) @map("subido_por_admin")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  lineas         LineaFactura[]
+
+  @@index([empresaId])
+  @@index([fechaFactura])
+  @@index([tipo])
+  @@index([estado])
+  @@map("facturas")
+}
+
+model LineaFactura {
+  id             String   @id @default(cuid())
+  facturaId      String   @map("factura_id")
+  factura        Factura  @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  descripcion    String
+  cantidad       Decimal  @db.Decimal(10, 3)
+  precioUnitario Decimal  @map("precio_unitario") @db.Decimal(12, 2)
+  ivaPorcentaje  Decimal  @map("iva_porcentaje") @db.Decimal(5, 2)
+  subtotal       Decimal  @db.Decimal(12, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("lineas_factura")
+}
+
+model Proveedor {
+  id            String   @id @default(cuid())
+  empresaId     String   @map("empresa_id")
+  empresa       Empresa  @relation(fields: [empresaId], references: [id])
+  cif           String
+  nombre        String
+  email         String?
+  telefono      String?
+  totalFacturas Int      @default(0) @map("total_facturas")
+  totalImporte  Decimal  @default(0) @map("total_importe") @db.Decimal(14, 2)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([empresaId, cif])
+  @@index([empresaId])
+  @@map("proveedores")
+}

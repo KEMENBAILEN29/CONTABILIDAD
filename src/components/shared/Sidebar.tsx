@@ -11,6 +11,7 @@ import {
   TrendingUp,
   LogOut,
   Building2,
+  ScanLine,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -28,6 +29,7 @@ const adminItems: NavItem[] = [
 const clienteItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Facturas", href: "/facturas", icon: FileText },
+  { label: "Escanear", href: "/escaner", icon: ScanLine },
   { label: "Proveedores", href: "/proveedores", icon: Building2 },
   { label: "Informes", href: "/informes", icon: BarChart3 },
 ]
